@@ -1,3 +1,13 @@
+---
+title: Multi-Document RAG
+emoji: 📚
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
 # Multi-Document RAG System
 
 Hybrid retrieval (BM25 + FAISS) → cross-encoder reranking → streamed, cited answers.
@@ -81,6 +91,20 @@ uvicorn main:app --port 8000
 ```
 
 Upload PDFs or paste URLs in the sidebar, then chat. Answers stream in and each source gets a citation card. Leave `API_KEY` unset for local use; without `REDIS_URL` it falls back to an in-memory cache. The Streamlit UI (`app.py`) still works and is optional.
+
+## 3c. Deploy a public link (Hugging Face Spaces)
+
+1. Create a Space at https://huggingface.co/new-space: SDK **Docker**, template **Blank**, hardware **CPU basic (free)**.
+2. In the Space: **Settings → Variables and secrets → New secret**. Add `OPENAI_API_KEY` (your key) and `API_KEY` (a long random password that protects the app).
+3. Push this repo to the Space:
+   ```bash
+   git remote add space https://huggingface.co/spaces/<your-hf-username>/<space-name>
+   git push space main
+   ```
+   (When asked for a password, use a Hugging Face access token with write permission.)
+4. Wait for the build (about 10-15 minutes the first time). Your app is then at `https://<your-hf-username>-<space-name>.hf.space`. Enter the `API_KEY` in the sidebar's key field.
+
+Caveats: the free tier sleeps when idle and wipes uploaded documents on restart. The Space is public, so keep `API_KEY` set or anyone can spend your OpenAI credits.
 
 ## 4. Run without Docker
 
