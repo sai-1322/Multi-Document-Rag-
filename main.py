@@ -31,11 +31,12 @@ import logging
 import os
 import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from cachetools import TTLCache
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -186,6 +187,15 @@ def sse(event: str, data: dict[str, Any]) -> str:
 # ----------------------------------------------------------------------------
 # Routes
 # ----------------------------------------------------------------------------
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/", include_in_schema=False)
+async def index() -> FileResponse:
+    """Built-in web UI (single HTML file). Open http://localhost:8000 after starting uvicorn."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
 @app.get("/health")
 async def health(request: Request) -> dict[str, Any]:
     p: RAGPipeline = request.app.state.pipeline

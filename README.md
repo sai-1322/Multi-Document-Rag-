@@ -65,6 +65,19 @@ curl -X POST localhost:8000/chat -H "X-API-Key: $API_KEY" -H "Content-Type: appl
   -d '{"question": "What is hybrid retrieval?", "stream": false}'
 ```
 
+## 3b. Built-in web app (no Streamlit, no Docker)
+
+The API also serves a single-page chat UI from `static/index.html`. One process, one URL:
+
+```bash
+pip install -r requirements.txt
+export OPENAI_API_KEY=sk-...
+uvicorn main:app --port 8000
+# open http://localhost:8000
+```
+
+Upload PDFs or paste URLs in the sidebar, then chat. Answers stream in and each source gets a citation card. Leave `API_KEY` unset for local use; without `REDIS_URL` it falls back to an in-memory cache. The Streamlit UI (`app.py`) still works and is optional.
+
 ## 4. Run without Docker
 
 ```bash

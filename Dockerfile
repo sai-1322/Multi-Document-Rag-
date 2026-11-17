@@ -80,6 +80,7 @@ COPY --from=builder /opt/hf /opt/hf
 
 WORKDIR /app
 COPY --chown=app:app rag_pipeline.py main.py evaluate.py ./
+COPY --chown=app:app static ./static
 
 USER app
 VOLUME ["/data"]

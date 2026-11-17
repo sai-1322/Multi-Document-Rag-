@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-Doc RAG Chat</title>
+<style>
+  :root { --bg:#f7f7f8; --panel:#fff; --text:#1c1c1e; --muted:#6b6b72; --border:#e2e2e6; --accent:#4f46e5; --err:#c62828; --user:#eef0ff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16161a; --panel:#202026; --text:#ececf0; --muted:#9a9aa5; --border:#33333b; --accent:#8b85ff; --err:#ff7b7b; --user:#2a2a45; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; height:100vh; display:flex; }
+  aside { width:320px; background:var(--panel); border-right:1px solid var(--border); padding:16px; overflow:auto; flex-shrink:0; }
+  main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  h1 { font-size:18px; margin:0 0 4px; } h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:20px 0 8px; }
+  .sub { color:var(--muted); font-size:13px; margin:0; }
+  input[type=text], input[type=password], textarea { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font:inherit; }
+  textarea { resize:vertical; min-height:70px; }
+  button { padding:8px 14px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--text); border:1px solid var(--border); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  #status { font-size:13px; margin-top:8px; white-space:pre-wrap; }
+  .ok { color:#2e7d32; } .err { color:var(--err); }
+  #indexed div { font-size:13px; color:var(--muted); padding:2px 0; word-break:break-all; }
+  #chat { flex:1; overflow:auto; padding:24px; display:flex; flex-direction:column; gap:16px; }
+  .msg { max-width:820px; width:100%; margin:0 auto; }
+  .bubble { padding:12px 14px; border-radius:12px; border:1px solid var(--border); background:var(--panel); white-space:pre-wrap; word-wrap:break-word; }
+  .msg.user .bubble { background:var(--user); }
+  .who { font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .cached { font-size:12px; color:var(--muted); margin-top:4px; }
+  .sources { margin-top:8px; display:grid; gap:8px; }
+  .card { border:1px solid var(--border); border-radius:10px; padding:8px 10px; background:var(--panel); font-size:13px; }
+  .card b { color:var(--accent); } .card .snip { color:var(--muted); margin-top:4px; }
+  .empty { margin:auto; text-align:center; color:var(--muted); }
+  form#ask { display:flex; gap:8px; padding:16px; border-top:1px solid var(--border); background:var(--panel); }
+  form#ask input { flex:1; }
+  @media (max-width: 760px) { body { flex-direction:column; height:auto; } aside { width:100%; border-right:0; border-bottom:1px solid var(--border); } main { height:80vh; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>📚 Multi-Doc RAG</h1>
+  <p class="sub">Hybrid search → rerank → cited answers</p>
+
+  <h2>API key (optional)</h2>
+  <input type="password" id="apikey" placeholder="Only if API_KEY is set on the server" autocomplete="off">
+
+  <h2>Add documents</h2>
+  <input type="file" id="files" accept="application/pdf,.pdf" multiple>
+  <textarea id="urls" placeholder="URLs, one per line" style="margin-top:8px"></textarea>
+  <div class="row"><button id="ingestBtn">Ingest</button><button class="secondary" id="clearBtn">Clear chat</button></div>
+  <div id="status"></div>
+
+  <h2>Indexed</h2>
+  <div id="indexed"><div>Loading…</div></div>
+</aside>
+
+<main>
+  <div id="chat"><div class="empty">Ingest a PDF or URL, then ask a question about it.</div></div>
+  <form id="ask">
+    <input type="text" id="q" placeholder="Ask something about your documents…" autocomplete="off" required maxlength="2000">
+    <button id="sendBtn" type="submit">Send</button>
+  </form>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const chat = $('#chat');
+let history = [];
+let busy = false;
+
+function headers(json) {
+  const h = {};
+  const k = $('#apikey').value.trim();
+  if (k) h['X-API-Key'] = k;
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+// All text is inserted with textContent, never innerHTML: documents and LLM output are untrusted.
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function addMsg(role) {
+  const empty = chat.querySelector('.empty');
+  if (empty) empty.remove();
+  const wrap = el('div', 'msg ' + role);
+  wrap.append(el('div', 'who', role === 'user' ? 'You' : 'Assistant'));
+  const bubble = el('div', 'bubble');
+  wrap.append(bubble);
+  chat.append(wrap);
+  chat.scrollTop = chat.scrollHeight;
+  return { wrap, bubble };
+}
+
+function renderSources(wrap, sources) {
+  if (!sources || !sources.length) return;
+  const box = el('div', 'sources');
+  for (const s of sources) {
+    const card = el('div', 'card');
+    const loc = s.page ? ' · p.' + s.page : '';
+    const title = el('div');
+    title.append(el('b', '', '[' + s.id + '] '), document.createTextNode((s.type === 'pdf' ? '📄 ' : '🌐 ') + s.source + loc));
+    card.append(title);
+    if (s.score !== null && s.score !== undefined) card.append(el('div', 'snip', 'rerank score: ' + s.score));
+    card.append(el('div', 'snip', s.snippet || ''));
+    box.append(card);
+  }
+  wrap.append(box);
+}
+
+async function ask(question) {
+  busy = true; $('#sendBtn').disabled = true;
+  addMsg('user').bubble.textContent = question;
+  const { wrap, bubble } = addMsg('assistant');
+  bubble.textContent = '…';
+  let answer = '';
+  let sources = [];
+  let cached = false;
+
+  function handle(block) {
+    let ev = null, data = null;
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) ev = line.slice(6).trim();
+      else if (line.startsWith('data:')) data = JSON.parse(line.slice(5).trim());
+    }
+    if (!ev || !data) return;
+    if (ev === 'sources') sources = data.sources || [];
+    else if (ev === 'token') { answer += data.text; bubble.textContent = answer; }
+    else if (ev === 'done') cached = !!data.cached;
+    else if (ev === 'error') throw new Error(data.detail || 'Server error');
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  try {
+    const r = await fetch('/chat', {
+      method: 'POST', headers: headers(true),
+      body: JSON.stringify({ question, history, stream: true }),
+    });
+    if (r.status === 429) throw new Error('Rate limit hit. Wait a moment and try again.');
+    if (r.status === 401) throw new Error('Unauthorized: enter the API key in the sidebar.');
+    if (!r.ok) throw new Error('Request failed (' + r.status + ').');
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) { handle(buf.slice(0, i)); buf = buf.slice(i + 2); }
+    }
+    if (!answer) bubble.textContent = '(empty answer)';
+    if (cached) wrap.append(el('div', 'cached', '⚡ served from cache'));
+    renderSources(wrap, sources);
+    history.push({ role: 'user', content: question }, { role: 'assistant', content: answer });
+  } catch (e) {
+    bubble.textContent = '⚠ ' + e.message;
+    bubble.classList.add('err');
+  } finally {
+    busy = false; $('#sendBtn').disabled = false; $('#q').focus();
+  }
+}
+
+$('#ask').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('#q').value.trim();
+  if (!q || busy) return;
+  $('#q').value = '';
+  ask(q);
+});
+
+$('#clearBtn').addEventListener('click', () => {
+  history = [];
+  chat.replaceChildren(el('div', 'empty', 'Ingest a PDF or URL, then ask a question about it.'));
+});
+
+async function loadSources() {
+  const box = $('#indexed');
+  try {
+    const r = await fetch('/sources', { headers: headers(false) });
+    if (!r.ok) { box.replaceChildren(el('div', '', 'Backend responded ' + r.status)); return; }
+    const items = (await r.json()).sources || [];
+    box.replaceChildren(...(items.length
+      ? items.map((s) => el('div', '', (s.type === 'pdf' ? '📄 ' : '🌐 ') + s.source + ' (' + s.chunks + ' chunks)'))
+      : [el('div', '', 'Nothing ingested yet.')]));
+  } catch { box.replaceChildren(el('div', '', 'Backend unreachable.')); }
+}
+
+$('#ingestBtn').addEventListener('click', async () => {
+  const files = $('#files').files, urls = $('#urls').value.trim();
+  const status = $('#status');
+  if (!files.length && !urls) { status.textContent = 'Add a PDF or a URL first.'; status.className = 'err'; return; }
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  fd.append('urls', urls);
+  $('#ingestBtn').disabled = true;
+  status.className = ''; status.textContent = 'Chunking and embedding… large PDFs take a while.';
+  try {
+    const r = await fetch('/ingest', { method: 'POST', headers: headers(false), body: fd });
+    if (r.status === 401) throw new Error('Unauthorized: enter the API key.');
+    if (r.status === 429) throw new Error('Rate limit hit. Wait a moment.');
+    const body = await r.json();
+    if (body.detail) throw new Error(typeof body.detail === 'string' ? body.detail : 'Invalid request');
+    status.replaceChildren(...(body.results || []).map((x) =>
+      el('div', x.status === 'ok' ? 'ok' : 'err', x.source + ': ' + (x.status === 'ok' ? '+' + x.chunks_added + ' chunks' : x.detail))));
+    $('#files').value = ''; $('#urls').value = '';
+    loadSources();
+  } catch (e) { status.textContent = e.message; status.className = 'err'; }
+  finally { $('#ingestBtn').disabled = false; }
+});
+
+loadSources();
+</script>
+</body>
+</html>
