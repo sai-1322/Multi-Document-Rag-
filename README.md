@@ -120,3 +120,9 @@ I did not hard-code it and you should not claim it unless the script prints it. 
 | `FINAL_K` | Chunks sent to the LLM. |
 | `BM25_WEIGHT` / `DENSE_WEIGHT` | Fusion weights. Tune with `evaluate.py`, not by feel. |
 | `MIN_RERANK_SCORE` | Noise floor; chunks scoring below it are dropped (and the bot says "not found"). |
+
+---
+
+## Author
+
+Built by [@sai-1322](https://github.com/sai-1322).
