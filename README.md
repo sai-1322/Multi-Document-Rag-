@@ -67,6 +67,10 @@ curl -X POST localhost:8000/chat -H "X-API-Key: $API_KEY" -H "Content-Type: appl
 
 ## 3b. Built-in web app (no Streamlit, no Docker)
 
+**Easiest:** download the repo as a ZIP, then double-click `run.bat` (Windows) or run `./run.sh` (macOS/Linux). It creates a virtual environment, installs everything, asks for your OpenAI key, and starts the app at http://localhost:8000.
+
+Manual way:
+
 The API also serves a single-page chat UI from `static/index.html`. One process, one URL:
 
 ```bash
