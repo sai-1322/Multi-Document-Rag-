@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7-alpine
+    # Pure cache + rate-limit counters: no persistence, bounded memory, LRU eviction.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      target: api
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
+      API_KEY: ${API_KEY:-}
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+    volumes:
+      - rag_data:/data          # persisted FAISS index + chunk store + eval artifacts
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      target: ui
+    environment:
+      API_URL: http://api:8000
+      API_KEY: ${API_KEY:-}
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  rag_data:

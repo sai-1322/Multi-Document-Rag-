@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# Core RAG stack
+# Pinned to the LangChain 0.3 line on purpose: EnsembleRetriever and the legacy
+# retriever APIs live there. LangChain 1.x moved them to `langchain-classic`
+# (rag_pipeline.py falls back to that import, but test before upgrading).
+# ---------------------------------------------------------------------------
+langchain>=0.3.7,<0.4
+langchain-core>=0.3.15,<0.4
+langchain-community>=0.3.7,<0.4
+langchain-openai>=0.2.8,<0.4
+langchain-huggingface>=0.1.2,<0.4
+langchain-text-splitters>=0.3.2,<0.4
+
+# Retrieval
+faiss-cpu>=1.8.0
+rank-bm25>=0.2.2
+sentence-transformers>=3.0.0        # embeddings + cross-encoder reranker
+
+# Document loading
+pypdf>=4.3.0
+beautifulsoup4>=4.12.3
+requests>=2.32.0
+
+# API layer
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9             # required for file uploads
+pydantic>=2.8.0
+slowapi>=0.1.9                      # rate limiting
+redis>=5.0.0                        # optional shared cache / rate-limit storage
+cachetools>=5.3.0                   # in-memory TTL cache fallback
+
+# Frontend (excluded from the API Docker image, see Dockerfile)
+streamlit>=1.38.0
+
+# Evaluation
+numpy>=1.26.0
+tqdm>=4.66.0
